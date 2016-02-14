@@ -1,5 +1,4 @@
- /*
-
+/*
  ####################################################################################
  #  BlackLib Library controls Beaglebone Black's inputs and outputs.                #
  #  Copyright (C) 2013-2015 by Yigit YUCE                                           #
@@ -24,7 +23,6 @@
  #  at ygtyce@gmail.com                                                             #
  #                                                                                  #
  ####################################################################################
-
  */
 
 
@@ -60,7 +58,8 @@ namespace BlackLib
                                 EHRPWM1B                = P9_16,
                                 EHRPWM0B                = P9_21,
                                 EHRPWM0A                = P9_22,
-                                ECAP0                   = P9_42
+                                ECAP0                   = P9_42,
+								PWMDISABLE              = 100
                             };
 
     /*!
@@ -93,7 +92,7 @@ namespace BlackLib
      *    for using pwms and protected functions which are using for exporting private variables to
      *    derived class(es).
      */
-    class BlackCorePWM : virtual private BlackCore
+    class BlackCorePWM : public BlackCore
     {
         private:
             errorCorePWM    *pwmCoreErrors;             /*!< @brief is used to hold the errors of BlackCorePWM class */
@@ -194,7 +193,6 @@ namespace BlackLib
      * @par Example
       @verbatim
       EXAMPLE PROJECT FILE TREE:
-
          myPwmProject
          |-> src
              |-> BlackLib
@@ -297,7 +295,7 @@ namespace BlackLib
      * @n <b> (t1+t2) </b> represents "period time" ==> @b 4 units at the figure
      * @n <b> (t2/(t1+t2)) </b> represents "duty ratio" ==> @b 0.25 at the figure
      */
-    class BlackPWM : virtual private BlackCorePWM
+    class BlackPWM : public BlackCorePWM
     {
         private:
             errorPWM        *pwmErrors;                 /*!< @brief is used to hold the errors of BlackPWM class */
@@ -979,6 +977,8 @@ namespace BlackLib
             bool            fail(BlackPWM::flags f);
     };
     // ########################################### BLACKPWM DECLARATION STARTS ############################################ //
+
+
 
 
 
