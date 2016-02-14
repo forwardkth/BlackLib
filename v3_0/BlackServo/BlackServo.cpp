@@ -7,6 +7,7 @@
  *      Author: Chao Li
  *      Email:forward.li.kth@gmail.com
  *      Blog: http://forwardkth.github.io/
+ *  add a Servo control module for easy servo motor control like PyBBIO
  */
 
 #include "BlackServo.h"
