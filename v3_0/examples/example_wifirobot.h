@@ -29,20 +29,21 @@
 #include "../BlackUART/BlackUART.h"
 
 #define TCP_ADDR "192.168.1.79"
-#define TCP_PORT 2002
+#define TCP_PORT_RX 2002
+#define TCP_PORT_TX 2003
 
 int laser_status = 0;
 int servoxy_angle = 82;
 int servoz_angle = 10;
 int ultra_distance = 100;
-int lowlen;
-int highlen;
+int lowlen = 0;
+int highlen = 0;
 
 using namespace BlackLib;
 // TCP thread for order receiver and execution
 class TCP_receiver : public BlackThread {
 public:
-	TCP_receiver(int &s, char rec_order,
+	TCP_receiver(
 		BlackServo &XY,
 		BlackServo &Z,
 		int &laser_status,
@@ -53,7 +54,7 @@ public:
 		BlackGPIO &io1_14,
 		BlackGPIO &io1_15,
 		BlackGPIO &io1_6)
-		: soc(s), order(rec_order), xy(XY), z(Z),
+		:xy(XY), z(Z),
 		laser(laser_status),
 		xyangle(servoxy_angle),
 		zangle(servoz_angle),
@@ -64,117 +65,165 @@ public:
 		gpio1_6(io1_6) {
 	}
 	void onStartHandler() {
+		//TCP init
+		int serverSocket;
+		struct sockaddr_in serverAddr;
+		struct sockaddr_in clientAddr;
+
+		int port = TCP_PORT_RX;   // TCP server port
+
+							   // creat and initialize a socket
+		serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+		// optional setting，try to avoid the server can not be restart quickly
+		int val = 1;
+		setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+
+		// define the listening port and address
+		serverAddr.sin_family = AF_INET;
+		serverAddr.sin_port = htons(port);
+		serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+		memset(&(serverAddr.sin_zero), 0, 8);
+		int rc = bind(serverSocket, (struct sockaddr*) &serverAddr,
+			sizeof(struct sockaddr));
+		if (rc == -1) {
+			std::cout << "bind failed!" << std::endl;
+			exit(1);
+		}
+
+		// start listening and the max client number is 5
+		rc = listen(serverSocket, 100);
+		if (rc == -1) {
+			std::cout << "listen failed!" << std::endl;
+			exit(1);
+		}
+
+		// waiting for a connection
+		int sock;
+		int clientAddrSize = sizeof(struct sockaddr_in);
+		std::cout << "TCP RX socket created!" << std::endl;
 		//std::cout << "read!"<<"  "<<order<< std::endl;
 		//std::cout << "zangle!"<<"  "<<zangle<< std::endl;
 		//std::cout << "xyangle!"<<"  "<<xyangle<< std::endl;
-		if (order) {
-			if (order == '5') { //PLZ UP
-				if (zangle <= 78) {
-					zangle += 2;
-					z.write_angle(zangle);
-					this->msleep(500);
-					z.ReleasePWM();
+		
+
+		//TCP_receive thread loop
+		while (1) {
+			sock = accept(serverSocket,
+				(struct sockaddr*) &clientAddr,
+				(socklen_t*)&clientAddrSize);
+
+			char order;
+			recv(sock, &order, 1, 0);
+
+			if (order) {
+				if (order == '5') { //PLZ UP
+					if (zangle <= 78) {
+						zangle += 2;
+						z.write_angle(zangle);
+						this->msleep(500);
+						z.ReleasePWM();
+					}
+					else if (zangle > 80) {
+						zangle = 80;
+					}
 				}
-				else if (zangle > 80) {
-					zangle = 80;
+				else if (order == '6') { //PLZ DOWN
+					if (zangle >= 12) {
+						zangle -= 2;
+						z.write_angle(zangle);
+						this->msleep(500);
+						z.ReleasePWM();
+					}
+					else if (zangle < 10) {
+						zangle = 10;
+					}
 				}
-			}
-			else if (order == '6') { //PLZ DOWN
-				if (zangle >= 12) {
-					zangle -= 2;
-					z.write_angle(zangle);
-					this->msleep(500);
-					z.ReleasePWM();
+				else if (order == '7') { //PLZ LEFT
+					if (xyangle >= 42) {
+						xyangle -= 2;
+						xy.write_angle(xyangle);
+						this->msleep(500);
+						xy.ReleasePWM();
+					}
+					else if (xyangle < 40) {
+						xyangle = 40;
+					}
 				}
-				else if (zangle < 10) {
+				else if (order == '8') { //PLZ RIGHT
+					if (xyangle <= 132) {
+						xyangle += 2;
+						xy.write_angle(xyangle);
+						this->msleep(500);
+						xy.ReleasePWM();
+					}
+					else if (xyangle > 134) {
+						xyangle = 134;
+					}
+				}
+				else if (order == '9') { //RESET PLZ
+					xyangle = 82;
 					zangle = 10;
-				}
-			}
-			else if (order == '7') { //PLZ LEFT
-				if (xyangle >= 42) {
-					xyangle -= 2;
-					xy.write_angle(xyangle);
+					z.write_angle(10);
+					xy.write_angle(82);
 					this->msleep(500);
-					xy.ReleasePWM();
 				}
-				else if (xyangle < 40) {
-					xyangle = 40;
+				else if (order == '0') { //motor stop
+					gpio1_13.setValue(low);
+					gpio1_12.setValue(low);
+					gpio1_14.setValue(low);
+					gpio1_15.setValue(low);
+					this->msleep(10);
+				}
+				else if (order == '1') { // motor forward
+					if (ultra_distance >= 200) {
+						gpio1_12.setValue(high);
+						gpio1_15.setValue(high);
+					}
+					this->msleep(10);
+				}
+				else if (order == '2') { // motor backward
+					gpio1_14.setValue(high);
+					gpio1_13.setValue(high);
+					this->msleep(10);
+				}
+				else if (order == '3') { // motor turn left
+					gpio1_14.setValue(high);
+					gpio1_12.setValue(high);
+					this->msleep(10);
+				}
+				else if (order == '4') { // motor turn right
+					gpio1_13.setValue(high);
+					gpio1_15.setValue(high);
+					this->msleep(10);
+				}
+				else if (order == 'l') { // laser on/off
+					if (0 == laser) {
+						gpio1_6.setValue(high);
+						laser = 1;
+					}
+					else {
+						gpio1_6.setValue(low);
+						laser = 0;
+					}
+					//this->sleep(1);
 				}
 			}
-			else if (order == '8') { //PLZ RIGHT
-				if (xyangle <= 132) {
-					xyangle += 2;
-					xy.write_angle(xyangle);
-					this->msleep(500);
-					xy.ReleasePWM();
-				}
-				else if (xyangle > 134) {
-					xyangle = 134;
-				}
-			}
-			else if (order == '9') { //RESET PLZ
-				xyangle = 82;
-				zangle = 10;
-				z.write_angle(10);
-				xy.write_angle(82);
-				this->msleep(500);
-			}
-			else if (order == '0') { //motor stop
+			else {
+				std::cout << "no order received!" << order << std::endl;
 				gpio1_13.setValue(low);
 				gpio1_12.setValue(low);
 				gpio1_14.setValue(low);
 				gpio1_15.setValue(low);
-				this->msleep(10);
-			}
-			else if (order == '1') { // motor forward
-				if (ultra_distance >= 200) {
-					gpio1_12.setValue(high);
-					gpio1_15.setValue(high);
-				}
-				this->msleep(10);
-			}
-			else if (order == '2') { // motor backward
-				gpio1_14.setValue(high);
-				gpio1_13.setValue(high);
-				this->msleep(10);
-			}
-			else if (order == '3') { // motor turn left
-				gpio1_14.setValue(high);
-				gpio1_12.setValue(high);
-				this->msleep(10);
-			}
-			else if (order == '4') { // motor turn right
-				gpio1_13.setValue(high);
-				gpio1_15.setValue(high);
-				this->msleep(10);
-			}
-			else if (order == 'l') { // laser on/off
-				if (0 == laser) {
-					gpio1_6.setValue(high);
-					laser = 1;
-				}
-				else {
-					gpio1_6.setValue(low);
-					laser = 0;
-				}
-				//this->sleep(1);
+				gpio1_6.setValue(low);
 			}
 		}
-		else {
-			std::cout << "no order received!" << order << std::endl;
-			gpio1_13.setValue(low);
-			gpio1_12.setValue(low);
-			gpio1_14.setValue(low);
-			gpio1_15.setValue(low);
-			gpio1_6.setValue(low);
-		}
-		close(soc);
+
+		close(sock);
 		return;
 	}
 
 private:
-	int &soc;
-	char order;
 	BlackServo &xy;
 	BlackServo &z;
 	int &laser;
@@ -187,8 +236,50 @@ private:
 	BlackGPIO gpio1_6;
 };
 
-// TCP thread for order receiver and execution
+// TCP thread for cmd receiving and execution
 class TCP_sender : public BlackLib::BlackThread {
+public:
+	TCP_sender() {};
+
+	void onStartHandler() {
+		//TCP init
+		int serverSocket;
+		struct sockaddr_in serverAddr;
+		struct sockaddr_in clientAddr;
+
+		int port = TCP_PORT_TX;   // TCP server TX port
+
+								  // creat and initialize a socket
+		serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+
+		// optional setting，try to avoid the server can not be restart quickly
+		int val = 1;
+		setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
+
+		// define the listening port and address
+		serverAddr.sin_family = AF_INET;
+		serverAddr.sin_port = htons(port);
+		serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
+		memset(&(serverAddr.sin_zero), 0, 8);
+		int rc = bind(serverSocket, (struct sockaddr*) &serverAddr,
+			sizeof(struct sockaddr));
+		if (rc == -1) {
+			std::cout << "bind failed!" << std::endl;
+			exit(1);
+		}
+
+		// start listening and the max client number is 5
+		rc = listen(serverSocket, 100);
+		if (rc == -1) {
+			std::cout << "listen failed!" << std::endl;
+			exit(1);
+		}
+
+		// waiting for a connection
+		int sock;
+		int clientAddrSize = sizeof(struct sockaddr_in);
+		std::cout << "TCP TX socket created!" << std::endl;
+	}
 
 };
 
@@ -239,7 +330,7 @@ private:
 };
 
 // wifirobot APP loop will be called in main
-int wifirobot() {
+int wifirobot() {	
 	//robot PLZ init
 	BlackServo servoXY(BlackLib::EHRPWM1B);
 	BlackServo servoZ(BlackLib::EHRPWM2B);
@@ -266,64 +357,38 @@ int wifirobot() {
 		BlackLib::ParityNo, //this setting is very important
 		BlackLib::StopOne,
 		BlackLib::Char8);
+	
+	//start ultrasound thread
 	Ultrasound *ultras = new Ultrasound(Usound_serial, ultra_distance, lowlen, highlen);
 	ultras->run();
-	//TCP init
-	int serverSocket;
-	struct sockaddr_in serverAddr;
-	struct sockaddr_in clientAddr;
 
-	int port = TCP_PORT;   // TCP server port
+	//start TCP_RX thread
+	TCP_receiver *rev = new TCP_receiver(servoXY, servoZ,
+		laser_status,
+		servoxy_angle,
+		servoz_angle,
+		GPIO1_12,
+		GPIO1_13,
+		GPIO1_14,
+		GPIO1_15,
+		GPIO1_6);
+	rev->run();
+	
+	//start TCP_TX thread
+	//..................
 
-						   // creat and initialize a socket
-	serverSocket = socket(AF_INET, SOCK_STREAM, 0);
+	//main loop
+	while(1) {
 
-	// optional setting，try to avoid the server can not be restart quickly
-	int val = 1;
-	setsockopt(serverSocket, SOL_SOCKET, SO_REUSEADDR, &val, sizeof(val));
-
-	// define the listening port and address
-	serverAddr.sin_family = AF_INET;
-	serverAddr.sin_port = htons(port);
-	serverAddr.sin_addr.s_addr = htonl(INADDR_ANY);
-	memset(&(serverAddr.sin_zero), 0, 8);
-	int rc = bind(serverSocket, (struct sockaddr*) &serverAddr,
-		sizeof(struct sockaddr));
-	if (rc == -1) {
-		std::cout << "bind failed!" << std::endl;
-		exit(1);
-	}
-
-	// start listening and the max client number is 5
-	rc = listen(serverSocket, 100);
-	if (rc == -1) {
-		std::cout << "listen failed!" << std::endl;
-		exit(1);
-	}
-
-	// waiting for a connection
-	int sock;
-	int clientAddrSize = sizeof(struct sockaddr_in);
-
-	std::cout << "TCP socket created!" << std::endl;
-	while (1) {
-		sock = accept(serverSocket,
-			(struct sockaddr*) &clientAddr,
-			(socklen_t*)&clientAddrSize);
-
-		char order[1];
-		recv(sock, &order, 1, 0);
-		if (order[0] != NULL) {
-		 TCP_receiver *rev = new TCP_receiver(sock, order[0],servoXY, servoZ,
-			                                  laser_status,
-				                              servoxy_angle,
-				                              servoz_angle,
-				                              GPIO1_12,
-				                              GPIO1_13,
-				                              GPIO1_14,
-				                              GPIO1_15,
-				                              GPIO1_6);
-		 rev->run();
+		usleep(100);
+		if (ultras->isFinished()) {
+			delete ultras;
+			ultras = nullptr;
+			break;
+		} else if (rev->isFinished()) {
+			delete rev;
+			rev = nullptr;
+			break;
 		}
 	}
 	return 0;
