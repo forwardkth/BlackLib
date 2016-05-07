@@ -30,7 +30,7 @@
 
 
 #include "BlackPWM.h"
-
+#include "stdint.h"
 
 
 
@@ -39,6 +39,8 @@ namespace BlackLib
 {
 
     // ######################################### BLACKCOREPWM DEFINITION STARTS ########################################## //
+	BlackCorePWM::BlackCorePWM() {}
+
     BlackCorePWM::BlackCorePWM(pwmName pwm)
     {
         this->pwmPinName    = pwm;
@@ -379,7 +381,7 @@ namespace BlackLib
         }
         else
         {
-            dutyFile << static_cast<int64_t>(std::round((this->getNumericPeriodValue()) * (1.0 - (percantage/100))));
+            dutyFile << static_cast<int64_t>(std::floor((this->getNumericPeriodValue()) * (1.0 - (percantage/100))));
             dutyFile.close();
             this->pwmErrors->dutyFileError = false;
             return true;
